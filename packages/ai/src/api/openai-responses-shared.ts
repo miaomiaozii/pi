@@ -36,7 +36,7 @@ import type {
 } from "../types.ts";
 import type { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { shortHash } from "../utils/hash.ts";
-import { parseStreamingJson } from "../utils/json-parse.ts";
+import { parseStreamingJson, parseToolCallArguments } from "../utils/json-parse.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 import { getSystemMessageText, renderSystemMessageUpdate } from "../utils/text.ts";
 import { resolveTranscript, resolveTranscriptTools } from "../utils/transcript.ts";
@@ -108,11 +108,12 @@ function convertToolResultOutput<TApi extends Api>(
 		.join("\n");
 	const images = content.filter((c): c is ImageContent => c.type === "image");
 	const videos = content.filter((c): c is VideoContent => c.type === "video");
+	const hasText = textResult.trim().length > 0;
 	const mediaNotes: string[] = [];
 	if (images.length > 0 && !model.input.includes("image")) mediaNotes.push("(see attached image)");
 	if (videos.length > 0 && !model.input.includes("video"))
 		mediaNotes.push("(video omitted: model does not accept video)");
-	const combinedText = [textResult, ...mediaNotes].filter(Boolean).join("\n");
+	const combinedText = [hasText ? textResult : "", ...mediaNotes].filter(Boolean).join("\n");
 	const sendImages = model.input.includes("image") ? images : [];
 	const sendVideos = model.input.includes("video") ? videos : [];
 
@@ -295,7 +296,10 @@ export function convertResponsesMessages<TApi extends Api>(
 						} satisfies ResponseInputText;
 					}
 					if (item.type === "video") {
-						return videoInputItem(item, compat?.videoPartFormat ?? "input_video") as unknown as ResponseInputContent;
+						return videoInputItem(
+							item,
+							compat?.videoPartFormat ?? "input_video",
+						) as unknown as ResponseInputContent;
 					}
 					return {
 						type: "input_image",
@@ -782,7 +786,7 @@ export async function processResponsesStream<TApi extends Api>(
 				slot?.type === "toolCall" &&
 				slot.block.partialJson !== undefined
 			) {
-				slot.block.arguments = parseStreamingJson(item.arguments || slot.block.partialJson || "{}");
+				Object.assign(slot.block, parseToolCallArguments(item.arguments || slot.block.partialJson));
 				if (item.namespace !== undefined) slot.block.namespace = item.namespace;
 				// Finalize in-place and strip the scratch buffer so replay only
 				// carries parsed arguments.

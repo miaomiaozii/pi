@@ -1,5 +1,12 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import type { Api, ImageContent, Model, ModelImageResizeOptions, TextContent, VideoContent } from "@earendil-works/pi-ai";
+import type {
+	Api,
+	ImageContent,
+	Model,
+	ModelImageResizeOptions,
+	TextContent,
+	VideoContent,
+} from "@earendil-works/pi-ai";
 import { constants } from "fs";
 import { access as fsAccess, readFile as fsReadFile, stat as fsStat } from "fs/promises";
 import { type Static, Type } from "typebox";
@@ -123,136 +130,137 @@ export function createReadToolDefinition(
 			_onUpdate?,
 			ctx?: ExtensionContext,
 		) {
-			return new Promise<{ content: (TextContent | ImageContent | VideoContent)[]; details: ReadToolDetails | undefined }>(
-				(resolve, reject) => {
-					if (signal?.aborted) {
-						reject(new Error("Operation aborted"));
-						return;
-					}
-					let aborted = false;
-					const onAbort = () => {
-						aborted = true;
-						reject(new Error("Operation aborted"));
-					};
-					signal?.addEventListener("abort", onAbort, { once: true });
+			return new Promise<{
+				content: (TextContent | ImageContent | VideoContent)[];
+				details: ReadToolDetails | undefined;
+			}>((resolve, reject) => {
+				if (signal?.aborted) {
+					reject(new Error("Operation aborted"));
+					return;
+				}
+				let aborted = false;
+				const onAbort = () => {
+					aborted = true;
+					reject(new Error("Operation aborted"));
+				};
+				signal?.addEventListener("abort", onAbort, { once: true });
 
-					(async () => {
-						try {
-							const absolutePath = await resolveReadPathAsync(path, ctx?.cwd || cwd);
-							if (aborted) return;
-							// Check if file exists and is readable.
-							await ops.access(absolutePath);
-							if (aborted) return;
-							const mimeType = ops.detectImageMimeType ? await ops.detectImageMimeType(absolutePath) : undefined;
-							const videoMimeType =
-								!mimeType && ops.detectVideoMimeType ? await ops.detectVideoMimeType(absolutePath) : null;
-							let content: (TextContent | ImageContent | VideoContent)[];
-							let details: ReadToolDetails | undefined;
-							const nonVisionImageNote = getNonVisionImageNote(ctx?.model);
-							if (mimeType) {
-								// Read image as binary.
-								const buffer = await ops.readFile(absolutePath);
-								const processed = await processImage(buffer, mimeType, {
-									autoResizeImages,
-									resizeOptions: ctx?.model?.inputLimits?.images?.resize ?? fallbackResizeOptions,
-								});
-								if (!processed.ok) {
-									let textNote = `Read image file [${mimeType}]\n${processed.message}`;
-									if (nonVisionImageNote) textNote += `\n${nonVisionImageNote}`;
-									content = [{ type: "text", text: textNote }];
-								} else {
-									let textNote = `Read image file [${processed.mimeType}]`;
-									if (processed.hints.length > 0) textNote += `\n${processed.hints.join("\n")}`;
-									if (nonVisionImageNote) textNote += `\n${nonVisionImageNote}`;
-									content = [
-										{ type: "text", text: textNote },
-										{ type: "image", data: processed.data, mimeType: processed.mimeType },
-									];
-								}
-							} else if (videoMimeType) {
-								const reportedSize = ops.getSize ? await ops.getSize(absolutePath) : undefined;
-								if (reportedSize !== undefined && reportedSize > MAX_VIDEO_BYTES) {
-									throw new Error(
-										`Video file is ${formatSize(reportedSize)}, exceeds ${formatSize(MAX_VIDEO_BYTES)} limit`,
-									);
-								}
-								const buffer = await ops.readFile(absolutePath);
-								if (buffer.byteLength > MAX_VIDEO_BYTES) {
-									throw new Error(
-										`Video file is ${formatSize(buffer.byteLength)}, exceeds ${formatSize(MAX_VIDEO_BYTES)} limit`,
-									);
-								}
-								let textNote = `Read video file [${videoMimeType}] (${formatSize(buffer.byteLength)})`;
-								const nonVideoNote = getNonVideoNote(ctx?.model);
-								if (nonVideoNote) textNote += `\n${nonVideoNote}`;
+				(async () => {
+					try {
+						const absolutePath = await resolveReadPathAsync(path, ctx?.cwd || cwd);
+						if (aborted) return;
+						// Check if file exists and is readable.
+						await ops.access(absolutePath);
+						if (aborted) return;
+						const mimeType = ops.detectImageMimeType ? await ops.detectImageMimeType(absolutePath) : undefined;
+						const videoMimeType =
+							!mimeType && ops.detectVideoMimeType ? await ops.detectVideoMimeType(absolutePath) : null;
+						let content: (TextContent | ImageContent | VideoContent)[];
+						let details: ReadToolDetails | undefined;
+						const nonVisionImageNote = getNonVisionImageNote(ctx?.model);
+						if (mimeType) {
+							// Read image as binary.
+							const buffer = await ops.readFile(absolutePath);
+							const processed = await processImage(buffer, mimeType, {
+								autoResizeImages,
+								resizeOptions: ctx?.model?.inputLimits?.images?.resize ?? fallbackResizeOptions,
+							});
+							if (!processed.ok) {
+								let textNote = `Read image file [${mimeType}]\n${processed.message}`;
+								if (nonVisionImageNote) textNote += `\n${nonVisionImageNote}`;
+								content = [{ type: "text", text: textNote }];
+							} else {
+								let textNote = `Read image file [${processed.mimeType}]`;
+								if (processed.hints.length > 0) textNote += `\n${processed.hints.join("\n")}`;
+								if (nonVisionImageNote) textNote += `\n${nonVisionImageNote}`;
 								content = [
 									{ type: "text", text: textNote },
-									{ type: "video", data: buffer.toString("base64"), mimeType: videoMimeType },
+									{ type: "image", data: processed.data, mimeType: processed.mimeType },
 								];
-							} else {
-								// Read text content.
-								const buffer = await ops.readFile(absolutePath);
-								const textContent = buffer.toString("utf-8");
-								const allLines = textContent.split("\n");
-								const totalFileLines = allLines.length;
-								// Apply offset if specified. Convert from 1-indexed input to 0-indexed array access.
-								const startLine = offset ? Math.max(0, offset - 1) : 0;
-								const startLineDisplay = startLine + 1;
-								// Check if offset is out of bounds.
-								if (startLine >= allLines.length) {
-									throw new Error(`Offset ${offset} is beyond end of file (${allLines.length} lines total)`);
-								}
-								let selectedContent: string;
-								let userLimitedLines: number | undefined;
-								// If limit is specified by the user, honor it first. Otherwise truncateHead decides.
-								if (limit !== undefined) {
-									const endLine = Math.min(startLine + limit, allLines.length);
-									selectedContent = allLines.slice(startLine, endLine).join("\n");
-									userLimitedLines = endLine - startLine;
-								} else {
-									selectedContent = allLines.slice(startLine).join("\n");
-								}
-								// Apply truncation, respecting both line and byte limits.
-								const truncation = truncateHead(selectedContent);
-								let outputText: string;
-								if (truncation.firstLineExceedsLimit) {
-									// First line alone exceeds the byte limit. Point the model at a bash fallback.
-									const firstLineSize = formatSize(Buffer.byteLength(allLines[startLine], "utf-8"));
-									outputText = `[Line ${startLineDisplay} is ${firstLineSize}, exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Use bash: sed -n '${startLineDisplay}p' ${path} | head -c ${DEFAULT_MAX_BYTES}]`;
-									details = { truncation };
-								} else if (truncation.truncated) {
-									// Truncation occurred. Build an actionable continuation notice.
-									const endLineDisplay = startLineDisplay + truncation.outputLines - 1;
-									const nextOffset = endLineDisplay + 1;
-									outputText = truncation.content;
-									if (truncation.truncatedBy === "lines") {
-										outputText += `\n\n[Showing lines ${startLineDisplay}-${endLineDisplay} of ${totalFileLines}. Use offset=${nextOffset} to continue.]`;
-									} else {
-										outputText += `\n\n[Showing lines ${startLineDisplay}-${endLineDisplay} of ${totalFileLines} (${formatSize(DEFAULT_MAX_BYTES)} limit). Use offset=${nextOffset} to continue.]`;
-									}
-									details = { truncation };
-								} else if (userLimitedLines !== undefined && startLine + userLimitedLines < allLines.length) {
-									// User-specified limit stopped early, but the file still has more content.
-									const remaining = allLines.length - (startLine + userLimitedLines);
-									const nextOffset = startLine + userLimitedLines + 1;
-									outputText = `${truncation.content}\n\n[${remaining} more lines in file. Use offset=${nextOffset} to continue.]`;
-								} else {
-									// No truncation and no remaining user-limited content.
-									outputText = truncation.content;
-								}
-								content = [{ type: "text", text: outputText }];
 							}
-
-							if (aborted) return;
-							signal?.removeEventListener("abort", onAbort);
-							resolve({ content, details });
-						} catch (error: any) {
-							signal?.removeEventListener("abort", onAbort);
-							if (!aborted) reject(error);
+						} else if (videoMimeType) {
+							const reportedSize = ops.getSize ? await ops.getSize(absolutePath) : undefined;
+							if (reportedSize !== undefined && reportedSize > MAX_VIDEO_BYTES) {
+								throw new Error(
+									`Video file is ${formatSize(reportedSize)}, exceeds ${formatSize(MAX_VIDEO_BYTES)} limit`,
+								);
+							}
+							const buffer = await ops.readFile(absolutePath);
+							if (buffer.byteLength > MAX_VIDEO_BYTES) {
+								throw new Error(
+									`Video file is ${formatSize(buffer.byteLength)}, exceeds ${formatSize(MAX_VIDEO_BYTES)} limit`,
+								);
+							}
+							let textNote = `Read video file [${videoMimeType}] (${formatSize(buffer.byteLength)})`;
+							const nonVideoNote = getNonVideoNote(ctx?.model);
+							if (nonVideoNote) textNote += `\n${nonVideoNote}`;
+							content = [
+								{ type: "text", text: textNote },
+								{ type: "video", data: buffer.toString("base64"), mimeType: videoMimeType },
+							];
+						} else {
+							// Read text content.
+							const buffer = await ops.readFile(absolutePath);
+							const textContent = buffer.toString("utf-8");
+							const allLines = textContent.split("\n");
+							const totalFileLines = allLines.length;
+							// Apply offset if specified. Convert from 1-indexed input to 0-indexed array access.
+							const startLine = offset ? Math.max(0, offset - 1) : 0;
+							const startLineDisplay = startLine + 1;
+							// Check if offset is out of bounds.
+							if (startLine >= allLines.length) {
+								throw new Error(`Offset ${offset} is beyond end of file (${allLines.length} lines total)`);
+							}
+							let selectedContent: string;
+							let userLimitedLines: number | undefined;
+							// If limit is specified by the user, honor it first. Otherwise truncateHead decides.
+							if (limit !== undefined) {
+								const endLine = Math.min(startLine + limit, allLines.length);
+								selectedContent = allLines.slice(startLine, endLine).join("\n");
+								userLimitedLines = endLine - startLine;
+							} else {
+								selectedContent = allLines.slice(startLine).join("\n");
+							}
+							// Apply truncation, respecting both line and byte limits.
+							const truncation = truncateHead(selectedContent);
+							let outputText: string;
+							if (truncation.firstLineExceedsLimit) {
+								// First line alone exceeds the byte limit. Point the model at a bash fallback.
+								const firstLineSize = formatSize(Buffer.byteLength(allLines[startLine], "utf-8"));
+								outputText = `[Line ${startLineDisplay} is ${firstLineSize}, exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Use bash: sed -n '${startLineDisplay}p' ${path} | head -c ${DEFAULT_MAX_BYTES}]`;
+								details = { truncation };
+							} else if (truncation.truncated) {
+								// Truncation occurred. Build an actionable continuation notice.
+								const endLineDisplay = startLineDisplay + truncation.outputLines - 1;
+								const nextOffset = endLineDisplay + 1;
+								outputText = truncation.content;
+								if (truncation.truncatedBy === "lines") {
+									outputText += `\n\n[Showing lines ${startLineDisplay}-${endLineDisplay} of ${totalFileLines}. Use offset=${nextOffset} to continue.]`;
+								} else {
+									outputText += `\n\n[Showing lines ${startLineDisplay}-${endLineDisplay} of ${totalFileLines} (${formatSize(DEFAULT_MAX_BYTES)} limit). Use offset=${nextOffset} to continue.]`;
+								}
+								details = { truncation };
+							} else if (userLimitedLines !== undefined && startLine + userLimitedLines < allLines.length) {
+								// User-specified limit stopped early, but the file still has more content.
+								const remaining = allLines.length - (startLine + userLimitedLines);
+								const nextOffset = startLine + userLimitedLines + 1;
+								outputText = `${truncation.content}\n\n[${remaining} more lines in file. Use offset=${nextOffset} to continue.]`;
+							} else {
+								// No truncation and no remaining user-limited content.
+								outputText = truncation.content;
+							}
+							content = [{ type: "text", text: outputText }];
 						}
-					})();
-				},
-			).then((result) => ({ ...result, structuredContent: toReadOutput(result.content) }));
+
+						if (aborted) return;
+						signal?.removeEventListener("abort", onAbort);
+						resolve({ content, details });
+					} catch (error: any) {
+						signal?.removeEventListener("abort", onAbort);
+						if (!aborted) reject(error);
+					}
+				})();
+			}).then((result) => ({ ...result, structuredContent: toReadOutput(result.content) }));
 		},
 		...readRenderers,
 	};

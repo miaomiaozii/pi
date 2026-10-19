@@ -1917,7 +1917,10 @@ export class AgentSession {
 			const normalized = await this._normalizePromptImages(trigger.images);
 			const text =
 				normalized.hints.length > 0 ? `${trigger.prompt}\n\n${normalized.hints.join("\n")}` : trigger.prompt;
-			const userContent: (TextContent | ImageContent | VideoContent)[] = [{ type: "text", text }, ...normalized.images];
+			const userContent: (TextContent | ImageContent | VideoContent)[] = [
+				{ type: "text", text },
+				...normalized.images,
+			];
 			if (trigger.videos) {
 				userContent.push(...trigger.videos);
 			}
@@ -2144,8 +2147,9 @@ export class AgentSession {
 			throw new Error(formatNoApiKeyFoundMessage(this.model.provider));
 		}
 
-		await this._startRun({ messageType: "user", prompt: expandedText, images: currentImages, videos: currentVideos }, () =>
-			preflightResult?.("started"),
+		await this._startRun(
+			{ messageType: "user", prompt: expandedText, images: currentImages, videos: currentVideos },
+			() => preflightResult?.("started"),
 		);
 	}
 

@@ -42,9 +42,9 @@ import {
 	type ThinkingContent,
 	type Tool,
 	type ToolCall,
-	type UserContent,
 	type ToolResultMessage,
 	type TranscriptContext,
+	type UserContent,
 } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
