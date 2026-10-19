@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { loadExtensions } from "../src/core/extensions/loader.ts";
+import { getAliases, loadExtensions } from "../src/core/extensions/loader.ts";
 import { VIRTUAL_MODULES } from "../src/core/extensions/virtual-modules.ts";
 
 // Extensions in ~/.pi/agent/extensions import the fork-local specifiers
@@ -27,6 +27,17 @@ describe("pi-stable extension specifiers", () => {
 		for (const [fork, npm] of Object.entries(FORK_TO_NPM)) {
 			expect(VIRTUAL_MODULES[npm], `missing npm specifier ${npm}`).toBeDefined();
 			expect(VIRTUAL_MODULES[fork], `missing virtual module ${fork}`).toBe(VIRTUAL_MODULES[npm]);
+		}
+	});
+
+	// The alias table is a second, independent copy of the same names for unbundled
+	// Node runs. It is not exported to the loader's callers, so a dropped entry here
+	// would only surface as an extension load failure at startup.
+	it("maps every fork specifier to the same jiti alias entry as its npm name", () => {
+		const aliases = getAliases();
+		for (const [fork, npm] of Object.entries(FORK_TO_NPM)) {
+			expect(aliases[npm], `missing alias ${npm}`).toBeDefined();
+			expect(aliases[fork], `missing alias ${fork}`).toBe(aliases[npm]);
 		}
 	});
 
