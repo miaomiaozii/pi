@@ -13,7 +13,7 @@ import type {
 const NON_VISION_USER_IMAGE_PLACEHOLDER = "(image omitted: model does not support images)";
 const NON_VIDEO_USER_VIDEO_PLACEHOLDER = "(video omitted: model does not support videos)";
 const NON_VISION_TOOL_IMAGE_PLACEHOLDER = "(tool image omitted: model does not support images)";
-const NON_VIDEO_TOOL_VIDEO_PLACEHOLDER = "(tool video omitted: model does not support videos)";
+export const NON_VIDEO_TOOL_VIDEO_PLACEHOLDER = "(tool video omitted: model does not support videos)";
 const ERROR_TOOL_IMAGE_PLACEHOLDER = "(image attached after the tool results)";
 
 /** An error tool result split into a text-only result and the images to send after the tool results. */

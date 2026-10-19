@@ -21,6 +21,7 @@ import type {
 	AssistantMessage,
 	ImageContent,
 	Model,
+	OpenAIResponsesCompat,
 	StopReason,
 	StreamOptions,
 	SystemMessage,
@@ -48,7 +49,7 @@ import {
 	resolveGrammarConstrainedSampling,
 	resolveJsonSchemaStrictSampling,
 } from "./constrained-sampling.ts";
-import { transformMessages } from "./transform-messages.ts";
+import { NON_VIDEO_TOOL_VIDEO_PLACEHOLDER, transformMessages } from "./transform-messages.ts";
 
 // =============================================================================
 // Utilities
@@ -98,6 +99,15 @@ function videoInputItem(block: VideoContent, videoPartFormat: "video_url" | "inp
 		: { type: "input_video", input_video: { data: block.data, mime_type: block.mimeType } };
 }
 
+/**
+ * Model.compat is a union over API families. The responses-family APIs (openai-responses,
+ * azure-openai-responses, openai-codex-responses) all use OpenAIResponsesCompat, so this narrows
+ * the generic Model<TApi> to the shape this serializer reads.
+ */
+function responsesCompat<TApi extends Api>(model: Model<TApi>): OpenAIResponsesCompat | undefined {
+	return model.compat as OpenAIResponsesCompat | undefined;
+}
+
 function convertToolResultOutput<TApi extends Api>(
 	model: Model<TApi>,
 	content: readonly UserContent[],
@@ -110,9 +120,10 @@ function convertToolResultOutput<TApi extends Api>(
 	const videos = content.filter((c): c is VideoContent => c.type === "video");
 	const hasText = textResult.trim().length > 0;
 	const mediaNotes: string[] = [];
+	// Defensive: transformMessages() already downgrades media the model does not
+	// accept, so these notes only appear if a caller skips that step.
 	if (images.length > 0 && !model.input.includes("image")) mediaNotes.push("(see attached image)");
-	if (videos.length > 0 && !model.input.includes("video"))
-		mediaNotes.push("(video omitted: model does not accept video)");
+	if (videos.length > 0 && !model.input.includes("video")) mediaNotes.push(NON_VIDEO_TOOL_VIDEO_PLACEHOLDER);
 	const combinedText = [hasText ? textResult : "", ...mediaNotes].filter(Boolean).join("\n");
 	const sendImages = model.input.includes("image") ? images : [];
 	const sendVideos = model.input.includes("video") ? videos : [];
@@ -133,13 +144,7 @@ function convertToolResultOutput<TApi extends Api>(
 		});
 	}
 	for (const video of sendVideos) {
-		output.push(
-			videoInputItem(
-				video,
-				(model.compat as { videoPartFormat?: "input_video" | "video_url" } | undefined)?.videoPartFormat ??
-					"input_video",
-			),
-		);
+		output.push(videoInputItem(video, responsesCompat(model)?.videoPartFormat ?? "input_video"));
 	}
 	return output;
 }
@@ -264,9 +269,7 @@ export function convertResponsesMessages<TApi extends Api>(
 			reasoning: { effort: effort as NonNullable<ResponseConfigurationUpdateItemParam.Reasoning["effort"]> },
 		} satisfies ResponseConfigurationUpdateItemParam);
 	};
-	const compat = model.compat as
-		| { supportsDeveloperRole?: boolean; videoPartFormat?: "input_video" | "video_url" }
-		| undefined;
+	const compat = responsesCompat(model);
 	const instructionRole = model.reasoning && compat?.supportsDeveloperRole !== false ? "developer" : "system";
 
 	let msgIndex = 0;
