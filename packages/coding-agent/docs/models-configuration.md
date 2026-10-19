@@ -35,7 +35,7 @@ Each `models` entry adds a model to the provider. An entry whose `id` matches an
 | `baseUrl` | string |  | Overrides the provider baseUrl. |
 | `reasoning` | boolean | `false` | Whether the model supports thinking. |
 | `thinkingLevelMap` | object |  | Provider value sent for each thinking level. null marks a level unsupported. Levels the model does not map use the provider's default value through high; xhigh and max are unsupported. |
-| `input` | `("text" \| "image")[]` | `["text"]` |  |
+| `input` | `("text" \| "image" \| "video")[]` | `["text"]` |  |
 | `inputLimits` | [object](#input-limits) |  |  |
 | `cost` | object |  |  |
 | `cost.input` | number |  | Required. Input cost in USD per million tokens. |
@@ -65,7 +65,7 @@ Each `modelOverrides` key is the ID of a built-in or extension model. Unknown ID
 | `name` | string |  | Display name, also matched by --model patterns. |
 | `reasoning` | boolean |  | Whether the model supports thinking. |
 | `thinkingLevelMap` | object |  | Provider value sent for each thinking level. null marks a level unsupported. Levels the model does not map use the provider's default value through high; xhigh and max are unsupported. |
-| `input` | `("text" \| "image")[]` |  |  |
+| `input` | `("text" \| "image" \| "video")[]` |  |  |
 | `inputLimits` | [object](#input-limits) |  |  |
 | `cost` | object |  |  |
 | `cost.input` | number |  | Input cost in USD per million tokens. |
@@ -137,6 +137,7 @@ See [Describe model input and caching](models.md#describe-model-input-and-cachin
 | `sessionAffinityFormat` | `"openai" \| "openai-nosession" \| "openrouter"` |  | Session-affinity header format. openai sends session_id, x-client-request-id, and x-session-affinity; openai-nosession sends x-client-request-id and x-session-affinity; openrouter sends x-session-id. Does not affect prompt_cache_key. Default: auto-detected. |
 | `supportsLongCacheRetention` | boolean |  | Whether the provider supports long prompt cache retention (prompt_cache_retention: "24h" or Anthropic-style cache_control.ttl: "1h", depending on format). Default: auto-detected from provider and URL. |
 | `vllmPriority` | number |  | vLLM scheduler priority sent as the top-level priority request field. Lower values are handled earlier and the server default is 0. Only meaningful with --scheduling-policy priority. Off by default and not set on the generated catalog. |
+| `videoPartFormat` | `"input_video" \| "video_url"` |  | Wire format for a video attachment on an OpenAI-compatible endpoint. input_video (the default) is the part llama.cpp's server and Strata accept; video_url sends a data: URL, which vLLM's multimodal server takes when launched with a video limit-mm-per-prompt. Set only on an endpoint verified to accept the format. |
 
 ### `openai-responses`
 
@@ -155,6 +156,7 @@ Also applies to `azure-openai-responses` and `openai-codex-responses`.
 | `supportsExplicitPromptCacheMode` | boolean | `false` | Whether the model accepts prompt_cache_options. Older OpenAI models reject the parameter. |
 | `supportsMidConvoEffort` | boolean | `false` | Whether thinking level changes are sent as configuration_update input items instead of changing reasoning.effort, so a change keeps the prompt cache. Only used by the openai-responses API, and ignored with Sign in with ChatGPT on the openai provider. |
 | `supportsMaxOutputTokens` | boolean | `true` | Whether the provider accepts max_output_tokens. Some Codex-protocol gateways reject it. |
+| `videoPartFormat` | `"input_video" \| "video_url"` |  | Wire format for a video attachment on an OpenAI Responses-compatible endpoint. OpenAI Responses has no video item; endpoints that read video take an input_video (base64) or video_url (data: URL) part. input_video (the default) is the llama.cpp spelling. Set only on an endpoint verified to accept the format. |
 
 ### `anthropic-messages`
 
