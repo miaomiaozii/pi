@@ -35,4 +35,14 @@ export const VIRTUAL_MODULES: Record<string, unknown> = {
 	"@mariozechner/pi-ai/oauth": bundledPiAiOauth,
 	"@mariozechner/pi-ai/providers/all": bundledPiAiProviders,
 	"@mariozechner/pi-coding-agent": bundledPiCodingAgent,
+	// Fork-local specifiers: the user's own extensions under ~/.pi/agent/extensions
+	// import these names, as does the sibling pi-stable fork whose package is
+	// literally named pi-stable.
+	"pi-stable-agent-core": bundledPiAgentCore,
+	"pi-stable-tui": bundledPiTui,
+	"pi-stable-ai": bundledPiAiCompat,
+	"pi-stable-ai/compat": bundledPiAiCompat,
+	"pi-stable-ai/oauth": bundledPiAiOauth,
+	"pi-stable-ai/providers/all": bundledPiAiProviders,
+	"pi-stable": bundledPiCodingAgent,
 };

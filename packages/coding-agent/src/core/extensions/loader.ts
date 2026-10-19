@@ -113,6 +113,16 @@ function getAliases(): Record<string, string> {
 		"@mariozechner/pi-ai/compat": piAiCompatEntry,
 		"@mariozechner/pi-ai/oauth": piAiOauthEntry,
 		"@mariozechner/pi-ai": piAiCompatEntry,
+		// Fork-local specifiers. The user's own extensions under ~/.pi/agent/extensions
+		// import these names (as does the sibling pi-stable fork, whose package is
+		// literally named pi-stable), so keep them resolvable next to the npm names.
+		"pi-stable": piCodingAgentEntry,
+		"pi-stable-agent-core": piAgentCoreEntry,
+		"pi-stable-tui": piTuiEntry,
+		"pi-stable-ai/providers/all": piAiProvidersEntry,
+		"pi-stable-ai/compat": piAiCompatEntry,
+		"pi-stable-ai/oauth": piAiOauthEntry,
+		"pi-stable-ai": piAiCompatEntry,
 		typebox: typeboxEntry,
 		"typebox/compile": typeboxCompileEntry,
 		"typebox/value": typeboxValueEntry,
