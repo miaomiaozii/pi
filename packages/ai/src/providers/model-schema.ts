@@ -15,7 +15,7 @@ import { openObject as object } from "./schema-builders.ts";
 
 export const THINKING_LEVELS = ["minimal", "low", "medium", "high", "xhigh", "max"] as const;
 export const MODEL_THINKING_LEVELS = ["off", ...THINKING_LEVELS] as const;
-export const MODEL_INPUT_MODALITIES = ["text", "image"] as const;
+export const MODEL_INPUT_MODALITIES = ["text", "image", "video"] as const;
 export const CACHE_RETENTIONS = ["none", "short", "long"] as const;
 export const MODEL_PROMPT_CACHE_RETENTIONS = ["short", "long"] as const;
 

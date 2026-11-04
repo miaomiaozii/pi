@@ -43,6 +43,7 @@ import type {
 	TextContent,
 	ToolResultMessage,
 	Usage,
+	VideoContent,
 } from "@earendil-works/pi-ai/compat";
 import {
 	clampThinkingLevel,
@@ -330,6 +331,8 @@ export interface PromptOptions {
 	expandPromptTemplates?: boolean;
 	/** Image attachments */
 	images?: ImageContent[];
+	/** Video attachments */
+	videos?: VideoContent[];
 	/** When streaming, how to queue the message: "steer" (interrupt) or "followUp" (wait). Required if streaming. */
 	streamingBehavior?: "steer" | "followUp";
 	/** Source of input for extension input event handlers. Defaults to "interactive". */
@@ -1971,9 +1974,16 @@ export class AgentSession {
 			const normalized = await this._normalizePromptImages(trigger.images);
 			const text =
 				normalized.hints.length > 0 ? `${trigger.prompt}\n\n${normalized.hints.join("\n")}` : trigger.prompt;
+			const userContent: (TextContent | ImageContent | VideoContent)[] = [
+				{ type: "text", text },
+				...normalized.images,
+			];
+			if (trigger.videos) {
+				userContent.push(...trigger.videos);
+			}
 			messages.push({
 				role: "user",
-				content: [{ type: "text", text }, ...normalized.images],
+				content: userContent,
 				timestamp: Date.now(),
 			});
 		}
@@ -2064,19 +2074,20 @@ export class AgentSession {
 		images: ImageContent[] | undefined,
 		source: InputSource,
 		streamingBehavior?: "steer" | "followUp",
-	): Promise<{ text: string; images: ImageContent[] | undefined } | undefined> {
+		videos?: VideoContent[],
+	): Promise<{ text: string; images: ImageContent[] | undefined; videos: VideoContent[] | undefined } | undefined> {
 		if (!this._extensionRunner.hasHandlers("input")) {
-			return { text, images };
+			return { text, images, videos };
 		}
 
-		const inputResult = await this._extensionRunner.emitInput(text, images, source, streamingBehavior);
+		const inputResult = await this._extensionRunner.emitInput(text, images, source, streamingBehavior, videos);
 		if (inputResult.action === "handled") {
 			return undefined;
 		}
 		if (inputResult.action === "transform") {
-			return { text: inputResult.text, images: inputResult.images ?? images };
+			return { text: inputResult.text, images: inputResult.images ?? images, videos: inputResult.videos ?? videos };
 		}
-		return { text, images };
+		return { text, images, videos };
 	}
 
 	private async _normalizePromptImages(
@@ -2140,12 +2151,13 @@ export class AgentSession {
 			options?.images,
 			options?.source ?? "interactive",
 			this.isStreaming ? options?.streamingBehavior : undefined,
+			options?.videos,
 		);
 		if (!processedInput) {
 			preflightResult?.("handled");
 			return;
 		}
-		const { text: currentText, images: currentImages } = processedInput;
+		const { text: currentText, images: currentImages, videos: currentVideos } = processedInput;
 
 		// Expand skill commands (/skill:name args) and prompt templates (/template args)
 		let expandedText = currentText;
@@ -2162,9 +2174,9 @@ export class AgentSession {
 				);
 			}
 			if (options.streamingBehavior === "followUp") {
-				await this._queueFollowUp(expandedText, currentImages);
+				await this._queueFollowUp(expandedText, currentImages, currentVideos);
 			} else {
-				await this._queueSteer(expandedText, currentImages);
+				await this._queueSteer(expandedText, currentImages, currentVideos);
 			}
 			preflightResult?.("queued");
 			return;
@@ -2190,8 +2202,9 @@ export class AgentSession {
 			throw new Error(formatNoApiKeyFoundMessage(this.model.provider));
 		}
 
-		await this._startRun({ messageType: "user", prompt: expandedText, images: currentImages }, () =>
-			preflightResult?.("started"),
+		await this._startRun(
+			{ messageType: "user", prompt: expandedText, images: currentImages, videos: currentVideos },
+			() => preflightResult?.("started"),
 		);
 	}
 
@@ -2260,6 +2273,7 @@ export class AgentSession {
 		images: ImageContent[] | undefined,
 		behavior: "steer" | "followUp",
 		source: InputSource,
+		videos?: VideoContent[],
 	): Promise<QueuedInputDisposition> {
 		if (text.startsWith("/")) {
 			this._throwIfExtensionCommand(text);
@@ -2270,6 +2284,7 @@ export class AgentSession {
 			images,
 			source,
 			this.isStreaming ? behavior : undefined,
+			videos,
 		);
 		if (!processedInput) return "handled";
 
@@ -2277,9 +2292,9 @@ export class AgentSession {
 		expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
 
 		if (behavior === "steer") {
-			await this._queueSteer(expandedText, processedInput.images);
+			await this._queueSteer(expandedText, processedInput.images, processedInput.videos);
 		} else {
-			await this._queueFollowUp(expandedText, processedInput.images);
+			await this._queueFollowUp(expandedText, processedInput.images, processedInput.videos);
 		}
 		return "queued";
 	}
@@ -2296,9 +2311,9 @@ export class AgentSession {
 	async steer(
 		text: string,
 		images?: ImageContent[],
-		options?: { source?: InputSource },
+		options?: { source?: InputSource; videos?: VideoContent[] },
 	): Promise<QueuedInputDisposition> {
-		return this._queueUserInput(text, images, "steer", options?.source ?? "interactive");
+		return this._queueUserInput(text, images, "steer", options?.source ?? "interactive", options?.videos);
 	}
 
 	/**
@@ -2312,20 +2327,23 @@ export class AgentSession {
 	async followUp(
 		text: string,
 		images?: ImageContent[],
-		options?: { source?: InputSource },
+		options?: { source?: InputSource; videos?: VideoContent[] },
 	): Promise<QueuedInputDisposition> {
-		return this._queueUserInput(text, images, "followUp", options?.source ?? "interactive");
+		return this._queueUserInput(text, images, "followUp", options?.source ?? "interactive", options?.videos);
 	}
 
 	/**
 	 * Internal: Queue a steering message (already expanded, no extension command check).
 	 */
-	private async _queueSteer(text: string, images?: ImageContent[]): Promise<void> {
+	private async _queueSteer(text: string, images?: ImageContent[], videos?: VideoContent[]): Promise<void> {
 		this._steeringMessages.push(text);
 		this._emitQueueUpdate();
-		const content: (TextContent | ImageContent)[] = [{ type: "text", text }];
+		const content: (TextContent | ImageContent | VideoContent)[] = [{ type: "text", text }];
 		if (images) {
 			content.push(...images);
+		}
+		if (videos) {
+			content.push(...videos);
 		}
 		this.agent.steer({
 			role: "user",
@@ -2337,12 +2355,15 @@ export class AgentSession {
 	/**
 	 * Internal: Queue a follow-up message (already expanded, no extension command check).
 	 */
-	private async _queueFollowUp(text: string, images?: ImageContent[]): Promise<void> {
+	private async _queueFollowUp(text: string, images?: ImageContent[], videos?: VideoContent[]): Promise<void> {
 		this._followUpMessages.push(text);
 		this._emitQueueUpdate();
-		const content: (TextContent | ImageContent)[] = [{ type: "text", text }];
+		const content: (TextContent | ImageContent | VideoContent)[] = [{ type: "text", text }];
 		if (images) {
 			content.push(...images);
+		}
+		if (videos) {
+			content.push(...videos);
 		}
 		this.agent.followUp({ role: "user", content, timestamp: Date.now() });
 	}
@@ -2448,33 +2469,39 @@ export class AgentSession {
 	 * @param options.expandPromptTemplates Whether to dispatch extension commands and expand skill commands and prompt templates. Default: false.
 	 */
 	async sendUserMessage(
-		content: string | (TextContent | ImageContent)[],
+		content: string | (TextContent | ImageContent | VideoContent)[],
 		options?: { deliverAs?: "steer" | "followUp"; expandPromptTemplates?: boolean },
 	): Promise<void> {
 		// Normalize content to text string + optional images
 		let text: string;
 		let images: ImageContent[] | undefined;
+		let videos: VideoContent[] | undefined;
 
 		if (typeof content === "string") {
 			text = content;
 		} else {
 			const textParts: string[] = [];
 			images = [];
+			videos = [];
 			for (const part of content) {
 				if (part.type === "text") {
 					textParts.push(part.text);
-				} else {
+				} else if (part.type === "image") {
 					images.push(part);
+				} else {
+					videos.push(part);
 				}
 			}
 			text = textParts.join("\n");
 			if (images.length === 0) images = undefined;
+			if (videos.length === 0) videos = undefined;
 		}
 
 		await this.prompt(text, {
 			expandPromptTemplates: options?.expandPromptTemplates ?? false,
 			streamingBehavior: options?.deliverAs,
 			images,
+			videos,
 			source: "extension",
 		});
 	}

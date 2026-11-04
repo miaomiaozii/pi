@@ -42,6 +42,7 @@ import type {
 	ToolResultMessage,
 	TranscriptContext,
 	Usage,
+	VideoContent,
 } from "@earendil-works/pi-ai";
 import type {
 	AutocompleteItem,
@@ -964,6 +965,8 @@ export interface BeforeAgentStartUserEvent extends BeforeAgentStartEventBase {
 	prompt: string;
 	/** Images attached to the user prompt, if any. */
 	images?: ImageContent[];
+	/** Videos attached to the user prompt, if any. */
+	videos?: VideoContent[];
 }
 
 /** A run started by `pi.sendMessage(..., { triggerTurn: true })` while idle. */
@@ -1194,6 +1197,8 @@ export interface InputEvent {
 	text: string;
 	/** Attached images, if any */
 	images?: ImageContent[];
+	/** Attached videos, if any */
+	videos?: VideoContent[];
 	/** Where the input came from */
 	source: InputSource;
 	/** How the input will be delivered during streaming, or undefined when idle */
@@ -1203,7 +1208,7 @@ export interface InputEvent {
 /** Result from input event handler */
 export type InputEventResult =
 	| { action: "continue" }
-	| { action: "transform"; text: string; images?: ImageContent[] }
+	| { action: "transform"; text: string; images?: ImageContent[]; videos?: VideoContent[] }
 	| { action: "handled" };
 
 // ============================================================================
@@ -1291,7 +1296,7 @@ interface ToolResultEventBase {
 	/** Set when another tool (for example a codemode script) issued this call. */
 	parentToolCallId?: string;
 	input: Record<string, unknown>;
-	content: (TextContent | ImageContent)[];
+	content: (TextContent | ImageContent | VideoContent)[];
 	/**
 	 * Machine-readable result for tools that declare an `outputSchema`. Handlers that redact
 	 * `content` should also replace this; replacing `content` alone drops it.
@@ -1501,7 +1506,7 @@ export type UserBashEventResult =
  * longer match. Return it along with `content` to keep it.
  */
 export interface ToolResultEventResult {
-	content?: (TextContent | ImageContent)[];
+	content?: (TextContent | ImageContent | VideoContent)[];
 	details?: unknown;
 	structuredContent?: JsonValue;
 	isError?: boolean;
@@ -2020,7 +2025,7 @@ interface ProviderModelConfigBase {
 	/** API endpoint URL override for this model. */
 	baseUrl?: string;
 	/** Supported input types. */
-	input: ("text" | "image")[];
+	input: ("text" | "image" | "video")[];
 	/** Provider input limits and cache-safe image preprocessing metadata. */
 	inputLimits?: AnyModel["inputLimits"];
 	/** Per-million-token cost rates and optional request-wide input pricing tiers. */

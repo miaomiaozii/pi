@@ -344,6 +344,12 @@ const OpenAICompletionsCompatProperties = {
 				"vLLM scheduler priority sent as the top-level priority request field. Lower values are handled earlier and the server default is 0. Only meaningful with --scheduling-policy priority. Off by default and not set on the generated catalog.",
 		}),
 	),
+	videoPartFormat: opt(
+		union([stringLiteral("input_video"), stringLiteral("video_url")], {
+			description:
+				"Wire format for a video attachment on an OpenAI-compatible endpoint. input_video (the default) is the part llama.cpp's server and Strata accept; video_url sends a data: URL, which vLLM's multimodal server takes when launched with a video limit-mm-per-prompt. Set only on an endpoint verified to accept the format.",
+		}),
+	),
 };
 
 export const OpenAICompletionsCompatSchema = openObject(OpenAICompletionsCompatProperties, {
@@ -409,6 +415,12 @@ const OpenAIResponsesCompatProperties = {
 		bool({
 			description: "Whether the provider accepts max_output_tokens. Some Codex-protocol gateways reject it.",
 			default: true,
+		}),
+	),
+	videoPartFormat: opt(
+		union([stringLiteral("input_video"), stringLiteral("video_url")], {
+			description:
+				"Wire format for a video attachment on an OpenAI Responses-compatible endpoint. OpenAI Responses has no video item; endpoints that read video take an input_video (base64) or video_url (data: URL) part. input_video (the default) is the llama.cpp spelling. Set only on an endpoint verified to accept the format.",
 		}),
 	),
 };
@@ -581,6 +593,12 @@ const ProviderCompatPropertyOverrides = {
 	sendSessionAffinityHeaders: optionalCompatBoolean({
 		description: "Whether to send session-affinity data from options.sessionId. Defaults are API-specific.",
 	}),
+	videoPartFormat: opt(
+		union([stringLiteral("input_video"), stringLiteral("video_url")], {
+			description:
+				"Wire format for a video attachment on OpenAI-compatible and OpenAI Responses endpoints. input_video (the default) is the part llama.cpp's server and Strata accept; video_url sends a data: URL, which vLLM's multimodal server takes when launched with a video limit-mm-per-prompt. Defaults are API-specific.",
+		}),
+	),
 } satisfies Properties;
 
 type UnionToIntersection<Union> = (Union extends unknown ? (value: Union) => void : never) extends (

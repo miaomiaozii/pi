@@ -34,6 +34,7 @@ import type {
 	Tool,
 	ToolCall,
 	ToolResultMessage,
+	VideoContent,
 } from "../types.ts";
 import { formatProviderError, normalizeProviderError } from "../utils/error-body.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
@@ -126,6 +127,37 @@ function isImageContentBlock(block: { type: string }): block is ImageContent {
 	return block.type === "image";
 }
 
+function isVideoContentBlock(block: { type: string }): block is VideoContent {
+	return block.type === "video";
+}
+
+type ChatCompletionContentPartVideo = {
+	type: "input_video";
+	input_video: { data: string };
+};
+
+/**
+ * vLLM's multimodal server takes video the way it takes images: a data URL under a
+ * `_url` part. It validates content parts against its own list and answers
+ * `400 {"error":"Unexpected item type in content."}` to anything else, so llama.cpp's
+ * `input_video` is rejected there even though the endpoint is otherwise OpenAI-compatible.
+ * The wire format is selected per endpoint through `compat.videoPartFormat`.
+ */
+type ChatCompletionContentPartVideoUrl = {
+	type: "video_url";
+	video_url: { url: string };
+};
+
+/** Build the video part in the wire format the endpoint was verified to accept. */
+function videoContentPart(
+	block: VideoContent,
+	format: ResolvedOpenAICompletionsCompat["videoPartFormat"],
+): ChatCompletionContentPartVideo | ChatCompletionContentPartVideoUrl {
+	return format === "video_url"
+		? { type: "video_url", video_url: { url: `data:${block.mimeType};base64,${block.data}` } }
+		: { type: "input_video", input_video: { data: block.data } };
+}
+
 function isReasoningDetailObject(detail: unknown): detail is Record<string, unknown> {
 	return typeof detail === "object" && detail !== null && !Array.isArray(detail);
 }
@@ -181,6 +213,7 @@ type ResolvedOpenAICompletionsCompat = Omit<
 	| "supportsMidConvoSystemMessages"
 	| "supportsMidConvoToolAdditions"
 	| "vllmPriority"
+	| "videoPartFormat"
 > & {
 	cacheControlFormat?: OpenAICompletionsCompat["cacheControlFormat"];
 	supportsThinkingTokenBudget?: OpenAICompletionsCompat["supportsThinkingTokenBudget"];
@@ -188,6 +221,7 @@ type ResolvedOpenAICompletionsCompat = Omit<
 	supportsMidConvoSystemMessages?: OpenAICompletionsCompat["supportsMidConvoSystemMessages"];
 	supportsMidConvoToolAdditions?: OpenAICompletionsCompat["supportsMidConvoToolAdditions"];
 	vllmPriority?: OpenAICompletionsCompat["vllmPriority"];
+	videoPartFormat?: OpenAICompletionsCompat["videoPartFormat"];
 };
 
 type ResolvedChatTemplateKwargValue = string | number | boolean | null;
@@ -1262,7 +1296,8 @@ export function convertMessages(
 								type: "text",
 								text: sanitizeSurrogates(item.text),
 							} satisfies ChatCompletionContentPartText;
-						} else {
+						}
+						if (item.type === "image") {
 							return {
 								type: "image_url",
 								image_url: {
@@ -1270,6 +1305,7 @@ export function convertMessages(
 								},
 							} satisfies ChatCompletionContentPartImage;
 						}
+						return videoContentPart(item, compat.videoPartFormat) as unknown as ChatCompletionContentPart;
 					});
 				if (content.length === 0) continue;
 				params.push({
@@ -1393,22 +1429,24 @@ export function convertMessages(
 			}
 			params.push(assistantMsg);
 		} else if (msg.role === "toolResult") {
-			const imageBlocks: Array<{ type: "image_url"; image_url: { url: string } }> = [];
+			const mediaBlocks: Array<
+				ChatCompletionContentPartImage | ChatCompletionContentPartVideo | ChatCompletionContentPartVideoUrl
+			> = [];
 			let j = i;
 
 			for (; j < transformedMessages.length && transformedMessages[j].role === "toolResult"; j++) {
 				const toolMsg = transformedMessages[j] as ToolResultMessage;
 
-				// Extract text and image content
+				// Extract text and media content.
 				const textResult = toolMsg.content
 					.filter(isTextContentBlock)
 					.map((block) => block.text)
 					.join("\n");
-				const hasImages = toolMsg.content.some((c) => c.type === "image");
+				const hasMedia = toolMsg.content.some((block) => block.type === "image" || block.type === "video");
 
-				// Always send tool result with text (or placeholder if only images)
+				// Always send tool result with text (or placeholder if it only contains media).
 				const hasText = textResult.trim().length > 0;
-				const toolResultText = hasText ? textResult : hasImages ? "(see attached image)" : "(no tool output)";
+				const toolResultText = hasText ? textResult : hasMedia ? "(see attached media)" : "(no tool output)";
 				// Some providers require the 'name' field in tool results
 				const toolResultMsg: ChatCompletionToolMessageParam = {
 					role: "tool",
@@ -1420,23 +1458,21 @@ export function convertMessages(
 				}
 				params.push(toolResultMsg);
 
-				if (hasImages && model.input.includes("image")) {
-					for (const block of toolMsg.content) {
-						if (isImageContentBlock(block)) {
-							imageBlocks.push({
-								type: "image_url",
-								image_url: {
-									url: `data:${block.mimeType};base64,${block.data}`,
-								},
-							});
-						}
+				for (const block of toolMsg.content) {
+					if (model.input.includes("image") && isImageContentBlock(block)) {
+						mediaBlocks.push({
+							type: "image_url",
+							image_url: { url: `data:${block.mimeType};base64,${block.data}` },
+						});
+					} else if (model.input.includes("video") && isVideoContentBlock(block)) {
+						mediaBlocks.push(videoContentPart(block, compat.videoPartFormat));
 					}
 				}
 			}
 
 			i = j - 1;
 
-			if (imageBlocks.length > 0) {
+			if (mediaBlocks.length > 0) {
 				if (compat.requiresAssistantAfterToolResult) {
 					params.push({
 						role: "assistant",
@@ -1449,11 +1485,11 @@ export function convertMessages(
 					content: [
 						{
 							type: "text",
-							text: "Attached image(s) from tool result:",
+							text: "Attached media from tool result:",
 						},
-						...imageBlocks,
+						...mediaBlocks,
 					],
-				});
+				} as unknown as ChatCompletionMessageParam);
 				lastRole = "user";
 			} else {
 				lastRole = "toolResult";

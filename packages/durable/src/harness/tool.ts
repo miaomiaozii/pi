@@ -9,7 +9,7 @@ import {
 	Progress,
 	type ProgressClock,
 } from "@earendil-works/chord/output";
-import type { ImageContent, TextContent, ToolCall, ToolResultMessage } from "@earendil-works/pi-ai";
+import type { ImageContent, TextContent, ToolCall, ToolResultMessage, VideoContent } from "@earendil-works/pi-ai";
 import { validateToolArguments } from "@earendil-works/pi-ai/utils/validation";
 import { compile, type Validator } from "@earendil-works/pi-schema";
 import { formats } from "@earendil-works/pi-schema/formats";
@@ -125,7 +125,7 @@ export const NestedCallDoc = defineDocFamily<NestedCallState, null>({
 });
 
 type Runtime = TaskRuntime<ToolTaskInput, ToolTaskCheckpoint, ToolTaskResult, ToolHooks>;
-type Content = (TextContent | ImageContent)[];
+type Content = (TextContent | ImageContent | VideoContent)[];
 
 /**
  * Built-in tool task: resolves the called tool among its phase agent's tools, validates, runs `beforeTool`, records intent,
@@ -969,7 +969,7 @@ async function startNestedCall(
  * What programs get of a tool's output when it declares no schema: one text item as its string, one image as itself,
  * nothing as `""`, and anything else as the content list.
  */
-function outputValue(output: Content): string | ImageContent | Content {
+function outputValue(output: Content): string | ImageContent | VideoContent | Content {
 	if (output.length === 0) return "";
 	if (output.length > 1) return output;
 	const [only] = output;

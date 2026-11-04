@@ -101,7 +101,8 @@
                     "items": {
                       "enum": [
                         "text",
-                        "image"
+                        "image",
+                        "video"
                       ]
                     },
                     "default": [
@@ -225,7 +226,8 @@
                       "items": {
                         "enum": [
                           "text",
-                          "image"
+                          "image",
+                          "video"
                         ]
                       }
                     },
@@ -1020,6 +1022,19 @@
         "vllmPriority": {
           "type": "number",
           "description": "vLLM scheduler priority sent as the top-level priority request field. Lower values are handled earlier and the server default is 0. Only meaningful with --scheduling-policy priority. Off by default and not set on the generated catalog."
+        },
+        "videoPartFormat": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "input_video"
+            },
+            {
+              "type": "string",
+              "const": "video_url"
+            }
+          ],
+          "description": "Wire format for a video attachment on OpenAI-compatible and OpenAI Responses endpoints. input_video (the default) is the part llama.cpp's server and Strata accept; video_url sends a data: URL, which vLLM's multimodal server takes when launched with a video limit-mm-per-prompt. Defaults are API-specific."
         },
         "supportsAdditionalTools": {
           "type": "boolean",

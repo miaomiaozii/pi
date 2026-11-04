@@ -55,7 +55,7 @@ interface ProviderModelConfigBase {
 	name: string;
 	api?: string;
 	baseUrl?: string;
-	input: ("text" | "image")[];
+	input: ("text" | "image" | "video")[];
 	inputLimits?: AnyModel["inputLimits"];
 	cost: AnyModel["cost"];
 	headers?: Record<string, string>;
@@ -184,7 +184,7 @@ function applyModelOverride(model: Model<Api>, override: ModelsJsonModelOverride
 		thinkingLevelMap: override.thinkingLevelMap
 			? { ...model.thinkingLevelMap, ...override.thinkingLevelMap }
 			: model.thinkingLevelMap,
-		input: (override.input as ("text" | "image")[] | undefined) ?? model.input,
+		input: (override.input as ("text" | "image" | "video")[] | undefined) ?? model.input,
 		inputLimits: mergeInputLimits(model.inputLimits, override.inputLimits),
 		cost: override.cost
 			? {
@@ -237,7 +237,7 @@ function modelFromJson(
 		baseUrl,
 		reasoning: definition.reasoning ?? false,
 		thinkingLevelMap: definition.thinkingLevelMap,
-		input: (definition.input ?? ["text"]) as ("text" | "image")[],
+		input: (definition.input ?? ["text"]) as ("text" | "image" | "video")[],
 		inputLimits: definition.inputLimits,
 		cost: definition.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 		promptCache: definition.promptCache,
