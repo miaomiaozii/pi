@@ -44,7 +44,10 @@ function persistedUserContent(harness: Harness, text: string): (TextContent | Im
 		if (entry.type !== "message" || entry.message.role !== "user") continue;
 		const content = entry.message.content;
 		if (typeof content === "string") continue;
-		if (content[0]?.type === "text" && content[0].text.split("\n")[0] === text) return content;
+		if (content[0]?.type === "text" && content[0].text.split("\n")[0] === text) {
+			// This test only covers text/image blocks; video blocks are not expected here.
+			return content.filter((block): block is TextContent | ImageContent => block.type !== "video");
+		}
 	}
 	throw new Error(`No user message "${text}"`);
 }

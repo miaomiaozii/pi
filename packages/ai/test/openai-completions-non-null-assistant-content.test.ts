@@ -46,6 +46,7 @@ const baseCompat: Omit<
 	sendSessionAffinityHeaders: false,
 	sessionAffinityFormat: "openai",
 	supportsLongCacheRetention: true,
+	videoPartFormat: "input_video",
 };
 
 function buildModel(): Model<"openai-completions"> {
