@@ -575,6 +575,18 @@ export const MistralConversationsCompatSchema = openObject(MistralConversationsC
 	additionalProperties: true,
 });
 
+const GoogleCompatProperties = {
+	supportsStrictMode: optionalCompatBoolean({
+		description:
+			"Whether the model enforces strict tools through Gemini's VALIDATED function-calling mode. Default: true for model IDs containing gemini-3 or a later version, such as gemini-3-pro or vendor-gemini-4-argon, false otherwise. Set true for Gemini 3+ models served under IDs without the version.",
+	}),
+};
+
+export const GoogleCompatSchema = openObject(GoogleCompatProperties, {
+	description: "Compatibility settings for the Google Generative AI and Vertex APIs.",
+	additionalProperties: true,
+});
+
 const SystemOneCompatProperties = {
 	imageInput: opt(
 		union([stringLiteral("assets"), stringLiteral("images"), stringLiteral("state-image-urls")], {
@@ -691,6 +703,8 @@ export const CompatSchemasByApi = {
 	"anthropic-messages": AnthropicMessagesCompatSchema,
 	"bedrock-converse-stream": BedrockCompatSchema,
 	"mistral-conversations": MistralConversationsCompatSchema,
+	"google-generative-ai": GoogleCompatSchema,
+	"google-vertex": GoogleCompatSchema,
 	"typesafe-system-one": SystemOneCompatSchema,
 	"cloudflare-workers-ai-system-one": SystemOneCompatSchema,
 } as const;
@@ -702,6 +716,7 @@ const ProviderCompatProperties = mergeCompatProperties(
 		AnthropicMessagesCompatProperties,
 		BedrockCompatProperties,
 		MistralConversationsCompatProperties,
+		GoogleCompatProperties,
 		SystemOneCompatProperties,
 	],
 	ProviderCompatPropertyOverrides,
@@ -735,5 +750,7 @@ export interface AnthropicMessagesCompat extends Static<typeof AnthropicMessages
 export interface BedrockCompat extends Static<typeof BedrockCompatSchema> {}
 /** Compatibility settings for the Mistral chat API. */
 export interface MistralConversationsCompat extends Static<typeof MistralConversationsCompatSchema> {}
+/** Compatibility settings for the Google Generative AI and Vertex APIs. */
+export interface GoogleCompat extends Static<typeof GoogleCompatSchema> {}
 /** Compatibility settings for System One classifier APIs. */
 export interface SystemOneCompat extends Static<typeof SystemOneCompatSchema> {}
