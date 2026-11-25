@@ -115,8 +115,19 @@ function formatReadResult(
 	_cwd: string,
 	isError: boolean,
 ): string {
+	const imageUnsupportedBy = result.details?.imageUnsupportedByModel;
+	const videoUnsupportedBy = result.details?.videoUnsupportedByModel;
+	const mediaWarnings = [
+		imageUnsupportedBy
+			? theme.fg("warning", `[${imageUnsupportedBy} does not support images; it saw a placeholder instead]`)
+			: "",
+		videoUnsupportedBy
+			? theme.fg("warning", `[${videoUnsupportedBy} does not support videos; it saw a placeholder instead]`)
+			: "",
+	].filter(Boolean);
+	const mediaWarning = mediaWarnings.length > 0 ? `\n${mediaWarnings.join("\n")}` : "";
 	if (!options.expanded && !isError) {
-		return "";
+		return mediaWarning;
 	}
 
 	const rawPath = str(args?.file_path ?? args?.path);
@@ -142,7 +153,7 @@ function formatReadResult(
 			text += `\n${theme.fg("warning", `[Truncated: ${truncation.outputLines} lines shown (${formatSize(truncation.maxBytes ?? DEFAULT_MAX_BYTES)} limit)]`)}`;
 		}
 	}
-	return text;
+	return text + mediaWarning;
 }
 
 export const readRenderers: Pick<ToolDefinition<any, ReadToolDetails | undefined>, "renderCall" | "renderResult"> = {

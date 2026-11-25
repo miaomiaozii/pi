@@ -1,11 +1,4 @@
-import type {
-	Api,
-	ImageContent,
-	Model,
-	ModelImageResizeOptions,
-	TextContent,
-	VideoContent,
-} from "@earendil-works/pi-ai";
+import type { ImageContent, ModelImageResizeOptions, TextContent, VideoContent } from "@earendil-works/pi-ai";
 import { constants } from "fs";
 import { access as fsAccess, open as fsOpen, readFile as fsReadFile, stat as fsStat } from "fs/promises";
 import { type Static, Type } from "typebox";
@@ -50,6 +43,17 @@ export type ReadToolOutput = Static<typeof readOutputSchema>;
 
 export interface ReadToolDetails {
 	truncation?: TruncationResult;
+	/**
+	 * Id of the model that was selected when the image was read, if it has no image input. Shown to the user only:
+	 * the model gets pi-ai's placeholder per request, so the stored result stays right after a model switch.
+	 */
+	imageUnsupportedByModel?: string;
+	/**
+	 * Id of the model that was selected when the video was read, if it has no video input. Shown to the user only:
+	 * the serializers in pi-ai replace the video with a placeholder per request, so the stored result stays right
+	 * after a model switch.
+	 */
+	videoUnsupportedByModel?: string;
 }
 
 /**
@@ -87,13 +91,16 @@ const defaultReadOperations: ReadOperations = {
 /**
  * Stream a local file the way fs.readFile reads it: a regular file up to its size when opened, so text
  * appended during the read is not counted and a growing file still ends; a file reporting size 0 (such
- * as /proc files) and other file types until EOF.
+ * as /proc files) and other file types until EOF. Abort is left to the read tool, which stops consuming
+ * the stream when its signal aborts; leaving its loop closes the stream.
  */
-async function* readLocalFileChunks(path: string, _options: { signal?: AbortSignal }): AsyncIterable<Uint8Array> {
+async function* readLocalFileChunks(path: string): AsyncIterable<Uint8Array> {
 	const handle = await fsOpen(path, "r");
 	try {
 		const stats = await handle.stat();
 		const end = stats.isFile() && stats.size > 0 ? stats.size - 1 : undefined;
+		// No signal for the stream: one that aborts before the stream's iterator attaches makes the stream
+		// emit an 'error' no listener handles, which crashes the process (#11956).
 		yield* handle.createReadStream({ end, autoClose: false });
 	} finally {
 		await handle.close();
@@ -114,20 +121,6 @@ function toReadOutput(content: (TextContent | ImageContent | VideoContent)[]): R
 	const text = content.find((block) => block.type === "text")?.text ?? "";
 	const image = content.find((block) => block.type === "image");
 	return image ? { type: "image", data: image.data, mimeType: image.mimeType, note: text } : text;
-}
-
-function getNonVisionImageNote(model: Model<Api> | undefined): string | undefined {
-	if (!model || model.input.includes("image")) {
-		return undefined;
-	}
-	return "[Current model does not support images. The image will be omitted from this request.]";
-}
-
-function getNonVideoNote(model: Model<Api> | undefined): string | undefined {
-	if (!model || model.input.includes("video")) {
-		return undefined;
-	}
-	return "[Current model does not support videos. The video will be omitted from this request.]";
 }
 
 /** The lines a read shows, with the file's line count; line counts follow `text.split("\n")`. */
@@ -295,11 +288,8 @@ export function createReadToolDefinition(
 						await ops.access(absolutePath);
 						if (aborted) return;
 						const mimeType = ops.detectImageMimeType ? await ops.detectImageMimeType(absolutePath) : undefined;
-						const videoMimeType =
-							!mimeType && ops.detectVideoMimeType ? await ops.detectVideoMimeType(absolutePath) : null;
-						let content: (TextContent | ImageContent | VideoContent)[];
+						let content: (TextContent | ImageContent)[];
 						let details: ReadToolDetails | undefined;
-						const nonVisionImageNote = getNonVisionImageNote(ctx?.model);
 						if (mimeType) {
 							// Read image as binary.
 							const buffer = await ops.readFile(absolutePath);
@@ -308,17 +298,18 @@ export function createReadToolDefinition(
 								resizeOptions: ctx?.model?.inputLimits?.images?.resize ?? fallbackResizeOptions,
 							});
 							if (!processed.ok) {
-								let textNote = `Read image file [${mimeType}]\n${processed.message}`;
-								if (nonVisionImageNote) textNote += `\n${nonVisionImageNote}`;
+								const textNote = `Read image file [${mimeType}]\n${processed.message}`;
 								content = [{ type: "text", text: textNote }];
 							} else {
 								let textNote = `Read image file [${processed.mimeType}]`;
 								if (processed.hints.length > 0) textNote += `\n${processed.hints.join("\n")}`;
-								if (nonVisionImageNote) textNote += `\n${nonVisionImageNote}`;
 								content = [
 									{ type: "text", text: textNote },
 									{ type: "image", data: processed.data, mimeType: processed.mimeType },
 								];
+								if (ctx?.model && !ctx.model.input.includes("image")) {
+									details = { imageUnsupportedByModel: ctx.model.id };
+								}
 							}
 						} else if (videoMimeType) {
 							const reportedSize = ops.getSize ? await ops.getSize(absolutePath) : undefined;
@@ -333,13 +324,14 @@ export function createReadToolDefinition(
 									`Video file is ${formatSize(buffer.byteLength)}, exceeds ${formatSize(MAX_VIDEO_BYTES)} limit`,
 								);
 							}
-							let textNote = `Read video file [${videoMimeType}] (${formatSize(buffer.byteLength)})`;
-							const nonVideoNote = getNonVideoNote(ctx?.model);
-							if (nonVideoNote) textNote += `\n${nonVideoNote}`;
+							const textNote = `Read video file [${videoMimeType}] (${formatSize(buffer.byteLength)})`;
 							content = [
 								{ type: "text", text: textNote },
 								{ type: "video", data: buffer.toString("base64"), mimeType: videoMimeType },
 							];
+							if (ctx?.model && !ctx.model.input.includes("video")) {
+								details = { videoUnsupportedByModel: ctx.model.id };
+							}
 						} else {
 							// Read text content. Convert offset from 1-indexed input to 0-indexed line access.
 							const startLine = offset ? Math.max(0, offset - 1) : 0;
