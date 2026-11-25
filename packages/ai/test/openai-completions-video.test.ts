@@ -11,7 +11,49 @@ vi.mock("../src/models.ts", async (importOriginal) => {
 	};
 });
 
-import { convertMessages } from "../src/api/openai-completions.ts";
+import { convertMessages, stream as streamOpenAICompletions } from "../src/api/openai-completions.ts";
+
+const mockState = vi.hoisted(() => ({
+	lastParams: undefined as { messages?: unknown[] } | undefined,
+}));
+
+vi.mock("openai", () => {
+	class FakeOpenAI {
+		chat = {
+			completions: {
+				create: (params: { messages?: unknown[] }) => {
+					mockState.lastParams = params;
+					const stream = {
+						async *[Symbol.asyncIterator]() {
+							yield {
+								choices: [{ delta: {}, finish_reason: "stop" }],
+								usage: {
+									prompt_tokens: 1,
+									completion_tokens: 1,
+									prompt_tokens_details: { cached_tokens: 0 },
+									completion_tokens_details: { reasoning_tokens: 0 },
+								},
+							};
+						},
+					};
+					const promise = Promise.resolve(stream) as Promise<typeof stream> & {
+						withResponse: () => Promise<{
+							data: typeof stream;
+							response: { status: number; headers: Headers };
+						}>;
+					};
+					promise.withResponse = async () => ({
+						data: stream,
+						response: { status: 200, headers: new Headers() },
+					});
+					return promise;
+				},
+			},
+		};
+	}
+
+	return { default: FakeOpenAI };
+});
 
 const compat: Omit<Required<OpenAICompletionsCompat>, "thinkingTokenBudgetField" | "vllmPriority"> & {
 	thinkingTokenBudgetField?: OpenAICompletionsCompat["thinkingTokenBudgetField"];
@@ -206,5 +248,37 @@ describe("openai-completions video input", () => {
 				{ type: "video_url", video_url: { url: "data:video/mp4;base64,CCCC-tool-vllm" } },
 			],
 		});
+	});
+
+	it("resolves compat.videoPartFormat from the model itself, not only from a passed-in compat", async () => {
+		// The runtime path derives compat through getCompat(model). A models.json entry that sets
+		// videoPartFormat must reach the serializer: omitting it from getCompat made every video
+		// part fall back to input_video, which a vLLM endpoint answers 400 to.
+		const configuredModel: Model<"openai-completions"> = {
+			...model,
+			baseUrl: "http://192.168.10.147:8001/v1",
+			input: ["text", "image", "video"],
+			compat: { videoPartFormat: "video_url" },
+		};
+		const context = normalizeContext({
+			messages: [
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "What is in this clip?" },
+						{ type: "video", data: "DDDD-config-video", mimeType: "video/mp4" },
+					],
+					timestamp: Date.now(),
+				},
+			],
+		});
+
+		await streamOpenAICompletions(configuredModel, context, { apiKey: "test-key" }).result();
+
+		const content = (mockState.lastParams?.messages?.at(-1) as { content?: unknown[] } | undefined)?.content;
+		expect(content).toEqual([
+			{ type: "text", text: "What is in this clip?" },
+			{ type: "video_url", video_url: { url: "data:video/mp4;base64,DDDD-config-video" } },
+		]);
 	});
 });

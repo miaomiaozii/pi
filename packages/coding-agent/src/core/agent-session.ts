@@ -43,8 +43,8 @@ import type {
 	TextContent,
 	ToolResultMessage,
 	Usage,
-	VideoContent,
 	UserMessage,
+	VideoContent,
 } from "@earendil-works/pi-ai/compat";
 import {
 	clampThinkingLevel,

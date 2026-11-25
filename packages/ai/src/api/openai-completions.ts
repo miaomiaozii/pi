@@ -1795,5 +1795,8 @@ function getCompat(model: Model<"openai-completions">): ResolvedOpenAICompletion
 		supportsLongCacheRetention: model.compat.supportsLongCacheRetention ?? detected.supportsLongCacheRetention,
 		promptCacheKeyMode: model.compat.promptCacheKeyMode,
 		vllmPriority: model.compat.vllmPriority,
+		// Without this the configured wire format never reaches the serializer and every
+		// endpoint falls back to input_video, which vLLM's chat server rejects.
+		videoPartFormat: model.compat.videoPartFormat ?? detected.videoPartFormat,
 	};
 }

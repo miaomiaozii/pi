@@ -288,7 +288,9 @@ export function createReadToolDefinition(
 						await ops.access(absolutePath);
 						if (aborted) return;
 						const mimeType = ops.detectImageMimeType ? await ops.detectImageMimeType(absolutePath) : undefined;
-						let content: (TextContent | ImageContent)[];
+						const videoMimeType =
+							!mimeType && ops.detectVideoMimeType ? await ops.detectVideoMimeType(absolutePath) : null;
+						let content: (TextContent | ImageContent | VideoContent)[];
 						let details: ReadToolDetails | undefined;
 						if (mimeType) {
 							// Read image as binary.
