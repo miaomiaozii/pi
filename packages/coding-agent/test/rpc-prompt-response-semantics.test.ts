@@ -8,7 +8,7 @@ import {
 	getModel,
 	type Model,
 } from "@earendil-works/pi-ai/compat";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentSession } from "../src/core/agent-session.ts";
 import type { AgentSessionRuntime } from "../src/core/agent-session-runtime.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
@@ -167,25 +167,88 @@ async function createRuntimeHost(options: {
 	};
 }
 
-async function startRpcMode(options: Parameters<typeof createRuntimeHost>[0]): Promise<{
-	lineHandler: (line: string) => void;
-	runtimeHost: AgentSessionRuntime;
-	cleanup: () => Promise<void>;
-}> {
+function rpcListeners() {
+	return {
+		SIGTERM: process.listeners("SIGTERM") as Array<() => void>,
+		SIGHUP: process.listeners("SIGHUP") as Array<() => void>,
+		end: process.stdin.listeners("end") as Array<() => void>,
+	};
+}
+
+type RpcListeners = ReturnType<typeof rpcListeners>;
+
+function addedRpcListeners(before: RpcListeners): RpcListeners {
+	const after = rpcListeners();
+	return {
+		SIGTERM: after.SIGTERM.filter((listener) => !before.SIGTERM.includes(listener)),
+		SIGHUP: after.SIGHUP.filter((listener) => !before.SIGHUP.includes(listener)),
+		end: after.end.filter((listener) => !before.end.includes(listener)),
+	};
+}
+
+function removeRpcListeners(owned: RpcListeners): void {
+	for (const listener of owned.SIGTERM) process.off("SIGTERM", listener);
+	for (const listener of owned.SIGHUP) process.off("SIGHUP", listener);
+	for (const listener of owned.end) process.stdin.off("end", listener);
+}
+
+async function startRpcMode(options: Parameters<typeof createRuntimeHost>[0]) {
 	rpcIo.outputLines = [];
 	rpcIo.lineHandler = undefined;
 
 	const { runtimeHost, cleanup } = await createRuntimeHost(options);
+	const before = rpcListeners();
 	void runRpcMode(runtimeHost);
-	await vi.waitFor(() => expect(rpcIo.lineHandler).toBeDefined());
-
-	return { lineHandler: rpcIo.lineHandler!, runtimeHost, cleanup };
+	try {
+		const lineHandler = await vi.waitFor(() => {
+			expect(rpcIo.lineHandler).toBeDefined();
+			return rpcIo.lineHandler!;
+		});
+		const owned = addedRpcListeners(before);
+		return {
+			lineHandler,
+			runtimeHost,
+			owned,
+			cleanup: async () => {
+				// The fixture cannot let production RPC exit this test runner.
+				removeRpcListeners(owned);
+				await cleanup();
+			},
+		};
+	} catch (error) {
+		removeRpcListeners(addedRpcListeners(before));
+		await cleanup();
+		throw error;
+	}
 }
 
 describe("RPC prompt response semantics", () => {
 	afterEach(() => {
 		rpcIo.outputLines = [];
 		rpcIo.lineHandler = undefined;
+	});
+
+	it("restores signal and stdin listeners after successive RPC fixtures", async () => {
+		const existing = () => {};
+		process.on("SIGTERM", existing);
+		process.on("SIGHUP", existing);
+		process.stdin.on("end", existing);
+		const before = rpcListeners();
+		try {
+			for (let i = 0; i < 2; i++) {
+				const { owned, cleanup } = await startRpcMode({ withAuth: false, responseDelayMs: 0 });
+				try {
+					for (const listeners of Object.values(owned)) expect(listeners).toHaveLength(1);
+				} finally {
+					await cleanup();
+				}
+				expect(rpcListeners()).toEqual(before);
+			}
+		} finally {
+			process.off("SIGTERM", existing);
+			process.off("SIGHUP", existing);
+			process.stdin.off("end", existing);
+		}
 	});
 
 	it("emits one failure response when prompt preflight rejects", async () => {
@@ -560,26 +623,7 @@ describe("RPC extension shutdown requests", () => {
 });
 
 describe("RPC shutdown triggers", () => {
-	// Earlier tests leave RPC instances listening (process.exit never runs). Detach every signal and
-	// stdin "end" listener so emitted triggers reach only this test's instance, then restore them.
-	const signals: NodeJS.Signals[] = ["SIGTERM", "SIGHUP"];
-	let savedSignalListeners: Array<[NodeJS.Signals, NodeJS.SignalsListener[]]> = [];
-	let savedEndListeners: Array<() => void> = [];
-
-	beforeEach(() => {
-		savedSignalListeners = signals.map((signal) => [signal, process.listeners(signal)]);
-		savedEndListeners = process.stdin.listeners("end") as Array<() => void>;
-		for (const signal of signals) process.removeAllListeners(signal);
-		process.stdin.removeAllListeners("end");
-	});
-
 	afterEach(() => {
-		for (const signal of signals) process.removeAllListeners(signal);
-		process.stdin.removeAllListeners("end");
-		for (const [signal, listeners] of savedSignalListeners) {
-			for (const listener of listeners) process.on(signal, listener);
-		}
-		for (const listener of savedEndListeners) process.stdin.on("end", listener);
 		rpcIo.outputLines = [];
 		rpcIo.lineHandler = undefined;
 		vi.restoreAllMocks();
@@ -594,18 +638,22 @@ describe("RPC shutdown triggers", () => {
 			finishDispose = resolve;
 		});
 		vi.mocked(started.runtimeHost.dispose).mockImplementation(() => disposeFinished);
-		return { ...started, exitSpy, finishDispose };
+		const trigger = (event: keyof RpcListeners) => {
+			// Exercise only the callback registered by this RPC instance, not Vitest's listeners.
+			const registered = rpcListeners()[event].filter((listener) => started.owned[event].includes(listener));
+			expect(registered).toHaveLength(1);
+			registered[0]!();
+		};
+		return { ...started, exitSpy, finishDispose, trigger };
 	}
 
-	// fcatuhe's report on #11599: Paseo closes stdin and sends SIGTERM together.
+	// #11599: process managers can close stdin and send SIGTERM together.
 	it("lets a shutdown started by stdin EOF finish when one SIGTERM follows", async () => {
-		const { runtimeHost, exitSpy, finishDispose, cleanup } = await startWithSlowDispose();
+		const { runtimeHost, exitSpy, finishDispose, cleanup, trigger } = await startWithSlowDispose();
 		try {
-			process.stdin.emit("end");
+			trigger("end");
 			await vi.waitFor(() => expect(runtimeHost.dispose).toHaveBeenCalledTimes(1));
-			// Without a listener, a real SIGTERM would kill the process mid-dispose.
-			expect(process.listenerCount("SIGTERM")).toBe(1);
-			process.emit("SIGTERM");
+			trigger("SIGTERM");
 			await sleep(10);
 			expect(exitSpy).not.toHaveBeenCalled();
 
@@ -618,11 +666,11 @@ describe("RPC shutdown triggers", () => {
 	});
 
 	it("lets a shutdown started by SIGTERM finish when stdin EOF follows", async () => {
-		const { runtimeHost, exitSpy, finishDispose, cleanup } = await startWithSlowDispose();
+		const { runtimeHost, exitSpy, finishDispose, cleanup, trigger } = await startWithSlowDispose();
 		try {
-			process.emit("SIGTERM");
+			trigger("SIGTERM");
 			await vi.waitFor(() => expect(runtimeHost.dispose).toHaveBeenCalledTimes(1));
-			process.stdin.emit("end");
+			trigger("end");
 			await sleep(10);
 			expect(exitSpy).not.toHaveBeenCalled();
 
@@ -639,9 +687,9 @@ describe("RPC shutdown triggers", () => {
 	// race with process.exit and left the command's processes running.
 	it("kills tracked shell trees after dispose on stdin EOF", async () => {
 		vi.mocked(killTrackedDetachedChildren).mockClear();
-		const { runtimeHost, exitSpy, finishDispose, cleanup } = await startWithSlowDispose();
+		const { runtimeHost, exitSpy, finishDispose, cleanup, trigger } = await startWithSlowDispose();
 		try {
-			process.stdin.emit("end");
+			trigger("end");
 			await vi.waitFor(() => expect(runtimeHost.dispose).toHaveBeenCalledTimes(1));
 			expect(killTrackedDetachedChildren).not.toHaveBeenCalled();
 
@@ -654,12 +702,12 @@ describe("RPC shutdown triggers", () => {
 	});
 
 	it("exits at once on a repeated signal during shutdown", async () => {
-		const { runtimeHost, exitSpy, cleanup } = await startWithSlowDispose();
+		const { runtimeHost, exitSpy, cleanup, trigger } = await startWithSlowDispose();
 		try {
-			process.stdin.emit("end");
+			trigger("end");
 			await vi.waitFor(() => expect(runtimeHost.dispose).toHaveBeenCalledTimes(1));
-			process.emit("SIGTERM");
-			process.emit("SIGTERM");
+			trigger("SIGTERM");
+			trigger("SIGTERM");
 			expect(exitSpy).toHaveBeenCalledTimes(1);
 			expect(exitSpy).toHaveBeenCalledWith(143);
 		} finally {

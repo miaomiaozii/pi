@@ -26,6 +26,10 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Use npm with release-age exclusions
+        working-directory: ${{ runner.temp }}
+        run: npm install -g npm@11.17.0 --ignore-scripts
+
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
@@ -83,6 +87,10 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Use npm with release-age exclusions
+        working-directory: ${{ runner.temp }}
+        run: npm install -g npm@11.17.0 --ignore-scripts
+
       # fd and ripgrep are used by coding-agent tools tests and tui autocomplete tests.
       - name: Install system dependencies
         if: matrix.name != 'durable' && matrix.name != 'chord'
@@ -129,6 +137,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
+
+      - name: Use npm with release-age exclusions
+        working-directory: ${{ runner.temp }}
+        run: npm install -g npm@11.17.0 --ignore-scripts
 
       - name: Install dependencies
         run: npm ci --ignore-scripts

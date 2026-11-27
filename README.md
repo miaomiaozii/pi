@@ -170,7 +170,7 @@ The archive includes release model data and native prebuilds. `--offline-model-d
 We treat npm dependency changes as reviewed code changes.
 
 - Direct external dependencies are pinned to exact versions. Internal workspace packages remain version-ranged.
-- `.npmrc` sets `save-exact=true` and `min-release-age=2` to avoid same-day dependency releases during npm resolution.
+- Use npm 11.17.0 or newer for this source checkout (`npm ci`, `npm run check`, and commit hooks). `.npmrc` sets `save-exact=true` and `min-release-age=2`; npm 11.17.0 is the first release that can honor the `@earendil-works/*` exception without treating `min-release-age-exclude` as an unknown setting. This is a contributor toolchain requirement, not a requirement for running the installed Pi CLI.
 - `package-lock.json` is the dependency ground truth. Pre-commit blocks accidental lockfile commits unless `PI_ALLOW_LOCKFILE_CHANGE=1` is set.
 - `npm run check` verifies pinned direct deps, native TypeScript import compatibility, and the generated coding-agent install lock.
 - The pi.dev installer installs from `packages/coding-agent/install-lock/`, generated from the root lockfile, to pin transitive deps. The npm package does not pin transitive deps.
