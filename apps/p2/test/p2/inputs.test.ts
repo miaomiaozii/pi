@@ -2,6 +2,7 @@
 // entry data, never from the sender block the model reads.
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import type { UserMessage } from "@earendil-works/pi-ai";
 import type { ConversationView, EntryRecord } from "@earendil-works/pi-durable";
 import { PEER_MESSAGE_ENTRY } from "../../src/runtime/entries.ts";
 import { type Author, authorSender, senderText } from "../../src/runtime/sender.ts";
@@ -76,6 +77,22 @@ describe("structured inputs", () => {
 			undefined,
 		]);
 		assert.deepEqual(second?.type === "user" && [second.author, second.peer], [undefined, undefined]);
+	});
+
+	it("shows only images from a user message containing video", () => {
+		const message: UserMessage = {
+			role: "user",
+			content: [
+				{ type: "text", text: "compare these" },
+				{ type: "video", data: "Y2xpcA==", mimeType: "video/mp4" },
+				{ type: "image", data: "aW1hZ2U=", mimeType: "image/png" },
+			],
+			timestamp: 0,
+		};
+		const input = entry({ id: 4, kind: "pi.user", model: [message] });
+		const [item] = buildTranscript(wholeView(view([input]))).items;
+		assert.equal(item?.type, "user");
+		assert.deepEqual(item.images, [{ mimeType: "image/png", src: "data:image/png;base64,aW1hZ2U=" }]);
 	});
 
 	it("escapes names and titles in the sender block", () => {

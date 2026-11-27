@@ -1,5 +1,5 @@
 import type { JsonValue } from "@earendil-works/chord/json";
-import type { AssistantMessage, ImageContent, TextContent, ToolResultMessage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, ToolResultMessage, UserContent } from "@earendil-works/pi-ai";
 import type {
 	AgentState,
 	CompactionFailure,
@@ -140,7 +140,7 @@ function text(content: string | readonly { type: string; text?: string }[]): str
 }
 
 /** The images of a message's content as shown (references from the chat view, src/runtime/entry-images.ts). */
-function imagesOf(content: readonly (TextContent | ImageContent)[]): ShownImage[] {
+function imagesOf(content: readonly UserContent[]): ShownImage[] {
 	return content.flatMap((part) => (part.type === "image" ? [shownImage(part)] : []));
 }
 
